@@ -1443,9 +1443,11 @@ class QueueListener(object):
         handlers.
         """
         self.queue = queue
-        self.handlers = handlers
+        self.handlers = list(handlers)
         self._thread = None
         self.respect_handler_level = respect_handler_level
+
+        self.handler_list_lock = threading.RLock()
 
     def dequeue(self, block):
         """
@@ -1485,13 +1487,46 @@ class QueueListener(object):
         to handle.
         """
         record = self.prepare(record)
-        for handler in self.handlers:
-            if not self.respect_handler_level:
-                process = True
-            else:
-                process = record.levelno >= handler.level
-            if process:
-                handler.handle(record)
+
+        self.handler_list_lock.acquire()
+        try:
+            for handler in self.handlers:
+                if not self.respect_handler_level:
+                    process = True
+                else:
+                    process = record.levelno >= handler.level
+                if process:
+                    handler.handle(record)
+        finally:
+            self.handler_list_lock.release()
+
+    def addHandler(self, hdlr):
+        """
+        Add the specified handler to this QueueListener.
+        """
+        self.handler_list_lock.acquire()
+        try:
+            if not (hdlr in self.handlers):
+                self.handlers.append(hdlr)
+        finally:
+            self.handler_list_lock.release()
+
+    def removeHandler(self, hdlr):
+        """
+        Remove the specified handler from this QueueListener.
+        """
+        self.handler_list_lock.acquire()
+        try:
+            if hdlr in self.handlers:
+                self.handlers.remove(hdlr)
+        finally:
+            self.handler_list_lock.release()
+
+    def hasHandlers(self):
+        """
+        See if this QueueListener has any handlers configured.
+        """
+        return bool(self.handlers)
 
     def _monitor(self):
         """
